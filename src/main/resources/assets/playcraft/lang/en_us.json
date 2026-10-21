@@ -1,0 +1,9 @@
+{
+  "key.category.playcraft.music": "PlayCraftMusic",
+  "category.playcraft.music": "PlayCraftMusic",
+  "key.playcraft.open_gui": "Open Music Center",
+  "key.playcraft.quick_controls": "Open Quick Controls Tray",
+  "command.playcraft.searching": "Searching on YouTube...",
+  "command.playcraft.playlist_loading": "Loading YouTube playlist...",
+  "command.playcraft.no_permission": "You do not have permission to perform this action."
+}

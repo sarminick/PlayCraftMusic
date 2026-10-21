@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "playcraft",
+  "version": "${version}",
+  "name": "PlayCraftMusic",
+  "description": "Sincronizador y reproductor de música de YouTube para Minecraft Fabric",
+  "authors": [
+    "Sarminick.dev"
+  ],
+  "contact": {},
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "com.playcraft.music.PlayCraftMod"
+    ],
+    "client": [
+      "com.playcraft.music.client.PlayCraftClient"
+    ]
+  },
+  "mixins": [
+    "playcraft.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.16.0",
+    "minecraft": "*",
+    "java": ">=21",
+    "fabric-api": "*"
+  }
+}
