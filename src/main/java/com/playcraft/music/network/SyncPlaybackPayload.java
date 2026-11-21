@@ -20,12 +20,17 @@ public record SyncPlaybackPayload(
         long positionMs,
         boolean isPlaying,
         List<TrackInfo> queue,
-        String notificationMessage
+        String notificationMessage,
+        boolean autoplayEnabled,
+        int loopModeOrdinal,
+        boolean hasAutoplayNext,
+        TrackInfo autoplayNext,
+        List<TrackInfo> history
 ) implements CustomPacketPayload {
     public static final Type<SyncPlaybackPayload> ID = new Type<>(Identifier.fromNamespaceAndPath(PlayCraftMod.MOD_ID, "sync_playback"));
 
     public SyncPlaybackPayload(boolean hasTrack, TrackInfo track, long positionMs, boolean isPlaying, List<TrackInfo> queue) {
-        this(hasTrack, track, positionMs, isPlaying, queue, "");
+        this(hasTrack, track, positionMs, isPlaying, queue, "", false, 0, false, null, List.of());
     }
 
     public static final StreamCodec<FriendlyByteBuf, SyncPlaybackPayload> CODEC = CustomPacketPayload.codec(
@@ -38,13 +43,29 @@ public record SyncPlaybackPayload(
                 buf.writeBoolean(payload.isPlaying());
 
                 // Serializar cola de reproducción
-                buf.writeInt(payload.queue().size());
-                for (TrackInfo item : payload.queue()) {
+                List<TrackInfo> q = payload.queue() != null ? payload.queue() : List.of();
+                buf.writeInt(q.size());
+                for (TrackInfo item : q) {
                     item.write(buf);
                 }
 
                 // Mensaje opcional de actividad
                 buf.writeUtf(payload.notificationMessage() != null ? payload.notificationMessage() : "");
+
+                // Estado de Autoplay, Loop e Historial
+                buf.writeBoolean(payload.autoplayEnabled());
+                buf.writeInt(payload.loopModeOrdinal());
+                boolean hasAutoNext = payload.hasAutoplayNext() && payload.autoplayNext() != null;
+                buf.writeBoolean(hasAutoNext);
+                if (hasAutoNext) {
+                    payload.autoplayNext().write(buf);
+                }
+                List<TrackInfo> hist = payload.history() != null ? payload.history() : List.of();
+                int histCount = Math.min(15, hist.size());
+                buf.writeInt(histCount);
+                for (int i = 0; i < histCount; i++) {
+                    hist.get(i).write(buf);
+                }
             },
             buf -> {
                 boolean hasTrack = buf.readBoolean();
@@ -59,8 +80,23 @@ public record SyncPlaybackPayload(
                 }
 
                 String notificationMessage = buf.isReadable() ? buf.readUtf() : "";
+                boolean autoplayEnabled = buf.isReadable() && buf.readBoolean();
+                int loopModeOrdinal = buf.isReadable() ? buf.readInt() : 0;
+                boolean hasAutoNext = buf.isReadable() && buf.readBoolean();
+                TrackInfo autoNext = hasAutoNext ? TrackInfo.read(buf) : null;
 
-                return new SyncPlaybackPayload(hasTrack, track, positionMs, isPlaying, queue, notificationMessage);
+                List<TrackInfo> hist = new ArrayList<>();
+                if (buf.isReadable()) {
+                    int histCount = Math.max(0, Math.min(15, buf.readInt()));
+                    for (int i = 0; i < histCount; i++) {
+                        hist.add(TrackInfo.read(buf));
+                    }
+                }
+
+                return new SyncPlaybackPayload(
+                        hasTrack, track, positionMs, isPlaying, queue, notificationMessage,
+                        autoplayEnabled, loopModeOrdinal, hasAutoNext, autoNext, hist
+                );
             }
     );
 

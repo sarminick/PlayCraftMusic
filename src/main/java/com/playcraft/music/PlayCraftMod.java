@@ -1,9 +1,12 @@
 package com.playcraft.music;
 
 import com.playcraft.music.model.TrackInfo;
+import com.playcraft.music.network.AddBatchTracksPayload;
 import com.playcraft.music.network.AddTrackPayload;
 import com.playcraft.music.network.ControlTrackPayload;
 import com.playcraft.music.network.ModifyQueuePayload;
+import com.playcraft.music.network.RequestAutoplayPayload;
+import com.playcraft.music.network.SubmitAutoplayPayload;
 import com.playcraft.music.network.SyncPlaybackPayload;
 import com.playcraft.music.server.ServerMusicManager;
 import net.fabricmc.api.ModInitializer;
@@ -24,9 +27,12 @@ public class PlayCraftMod implements ModInitializer {
         LOGGER.info("[PlayCraft] Registrando paquetes de red y eventos...");
 
         PayloadTypeRegistry.serverboundPlay().register(AddTrackPayload.ID, AddTrackPayload.CODEC);
+        PayloadTypeRegistry.serverboundPlay().register(AddBatchTracksPayload.ID, AddBatchTracksPayload.CODEC);
         PayloadTypeRegistry.serverboundPlay().register(ControlTrackPayload.ID, ControlTrackPayload.CODEC);
         PayloadTypeRegistry.serverboundPlay().register(ModifyQueuePayload.ID, ModifyQueuePayload.CODEC);
+        PayloadTypeRegistry.serverboundPlay().register(SubmitAutoplayPayload.ID, SubmitAutoplayPayload.CODEC);
         PayloadTypeRegistry.clientboundPlay().register(SyncPlaybackPayload.ID, SyncPlaybackPayload.CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(RequestAutoplayPayload.ID, RequestAutoplayPayload.CODEC);
 
         // Ciclo de vida del servidor
         ServerLifecycleEvents.SERVER_STARTED.register(server -> {
@@ -88,6 +94,29 @@ public class PlayCraftMod implements ModInitializer {
             }
         });
 
+        // Receptor C2S: Añadir lote de canciones (playlist importada / guardada resuelta en el cliente)
+        ServerPlayNetworking.registerGlobalReceiver(AddBatchTracksPayload.ID, (payload, context) -> {
+            context.server().execute(() -> {
+                ServerMusicManager.getInstance().enqueueBatch(
+                        payload.tracks(),
+                        context.player(),
+                        payload.sourceLabel(),
+                        payload.shuffleOnAdd()
+                );
+            });
+        });
+
+        // Receptor C2S: Sugerencia de Autoplay resuelta por un cliente
+        ServerPlayNetworking.registerGlobalReceiver(SubmitAutoplayPayload.ID, (payload, context) -> {
+            context.server().execute(() -> {
+                ServerMusicManager.getInstance().handleAutoplaySuggestion(
+                        payload.forTrackId(),
+                        payload.found(),
+                        payload.track()
+                );
+            });
+        });
+
         // Receptor C2S: Control de reproducción
         ServerPlayNetworking.registerGlobalReceiver(ControlTrackPayload.ID, (payload, context) -> {
             context.server().execute(() -> {
@@ -95,7 +124,7 @@ public class PlayCraftMod implements ModInitializer {
             });
         });
 
-        // Receptor C2S: Modificar cola (remover / reordenar)
+        // Receptor C2S: Modificar cola (remover / reordenar / limpiar / cambiar sugerencia autoplay)
         ServerPlayNetworking.registerGlobalReceiver(ModifyQueuePayload.ID, (payload, context) -> {
             context.server().execute(() -> {
                 if (payload.action() == ModifyQueuePayload.Action.REMOVE) {
@@ -104,6 +133,8 @@ public class PlayCraftMod implements ModInitializer {
                     ServerMusicManager.getInstance().moveInQueue(payload.fromIndex(), payload.toIndex());
                 } else if (payload.action() == ModifyQueuePayload.Action.CLEAR) {
                     ServerMusicManager.getInstance().clearQueue(context.player());
+                } else if (payload.action() == ModifyQueuePayload.Action.REROLL_AUTOPLAY) {
+                    ServerMusicManager.getInstance().rerollAutoplay(context.player());
                 }
             });
         });

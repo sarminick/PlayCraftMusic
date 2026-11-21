@@ -99,7 +99,7 @@ public class MusicHudOverlay implements HudElement {
 
     public static float getDiscRotationAngle() {
         long now = System.currentTimeMillis();
-        if (isPlaying) {
+        if (isPlaying && ClientAudioEngine.getInstance().isActualSoundPlaying()) {
             long delta = now - lastAngleUpdateTime;
             if (delta > 0 && delta < 500) { // Limitar por saltos bruscos
                 currentAngle = (currentAngle + (delta / 4000.0f * 360.0f)) % 360.0f;
@@ -182,10 +182,21 @@ public class MusicHudOverlay implements HudElement {
         String title = rawTitle.length() > 25 ? rawTitle.substring(0, 23) + "..." : rawTitle;
         drawContext.text(client.font, "§f§l" + title, textX, HUD_Y + 7, 0xFFFFFFFF);
 
-        // 4. Autor de la canción (solo el nombre del artista/autor)
-        String rawAuthor = track.author();
-        String author = rawAuthor.length() > 26 ? rawAuthor.substring(0, 24) + "..." : rawAuthor;
-        drawContext.text(client.font, "§e" + author, textX, HUD_Y + 20, 0xFFEEEEEE);
+        // 4. Autor o estado en vivo del motor de audio
+        ClientAudioEngine.PlaybackStatus status = ClientAudioEngine.getInstance().getPlaybackStatus();
+        String subLine;
+        if (status == ClientAudioEngine.PlaybackStatus.LOADING) {
+            subLine = "§eCargando audio...";
+        } else if (status == ClientAudioEngine.PlaybackStatus.RECONNECTING) {
+            subLine = "§6Reconectando audio...";
+        } else if (status == ClientAudioEngine.PlaybackStatus.ERROR) {
+            subLine = "§cReintentando audio...";
+        } else {
+            String rawAuthor = track.author();
+            String author = rawAuthor.length() > 26 ? rawAuthor.substring(0, 24) + "..." : rawAuthor;
+            subLine = "§e" + author;
+        }
+        drawContext.text(client.font, subLine, textX, HUD_Y + 20, 0xFFEEEEEE);
 
         // 5. Barra de progreso estética
         int barX = textX;

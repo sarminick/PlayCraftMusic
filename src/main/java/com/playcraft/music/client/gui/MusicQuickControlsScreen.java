@@ -159,7 +159,7 @@ public class MusicQuickControlsScreen extends Screen {
         posSlider.active = hasTrack;
         this.addRenderableWidget(posSlider);
 
-        // Fila 3: Slider de Volumen con color contrastante (volumeFromHudTheme) y botón de silenciar proporcional
+        // Fila 3: Slider de Volumen con color contrastante y botón de silenciar proporcional
         float currentVol = ClientAudioEngine.getInstance().getVolume();
         boolean isMuted = ClientAudioEngine.getInstance().isMuted();
         int muteBtnW = Math.max(16, Math.round(24 * scale));

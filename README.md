@@ -1,19 +1,22 @@
-# PlayCraftMusic (v1.0.0)
+# PlayCraftMusic (v1.1.0)
 
-Sincronizador y reproductor de música de YouTube en tiempo real para **Minecraft (Fabric 26.2)**. Permite buscar canciones y añadir enlaces directos, escuchar de forma sincronizada con todos los jugadores del servidor a través de un motor de audio de alta fidelidad (48kHz 16-bit estéreo sobre OpenAL).
+Sincronizador y reproductor de música de YouTube en tiempo real para **Minecraft (Fabric 26.2)**. Permite buscar canciones, añadir enlaces directos o playlists completas, guardar colecciones locales y escuchar de forma sincronizada con todos los jugadores del servidor a través de un motor de audio de alta fidelidad (48kHz 16-bit estéreo sobre OpenAL).
 
 ---
 
 ## Características Principales
 
-- **Sincronización Multijugador en Tiempo Real:** Todos los jugadores del servidor escuchan exactamente la misma canción y posición, con inicio sincronizado (`STREAM_READY`) y pre-carga automática (*pre-fetching*) de la siguiente canción en cola.
-- **HUD Flotante con Vinilo Animado:** Muestra la carátula oficial de YouTube girando como un disco de vinilo, título, artista y progreso en vivo.
+- **Motor de Audio v2 (Estabilidad Multijugador):** Anillo de 24 buffers (~2.4s), caché con TTL, pre-carga de la siguiente canción, watchdog automático desde la carga inicial, respaldo vía *pipe* (`yt-dlp | ffmpeg`) contra bloqueos HTTP 403/throttling y botón local **Reconectar**.
+- **Sincronización Multijugador en Tiempo Real:** Todos los jugadores escuchan exactamente la misma canción y posición (`STREAM_READY`), con **Autoplay** tipo YouTube Mix, modos de **Repetición** (*1 canción* / *cola*) y **Shuffle**.
+- **HUD Flotante con Vinilo Animado:** Muestra la carátula oficial en HD girando únicamente cuando el audio está activo, título, estado de reproducción en vivo y progreso.
 - **Centro Musical Completo (`.`):**
-  - **Now Playing:** Barra de progreso interactiva (*Seek*), control de volumen individual, botón de silencio y controles de reproducción (*Prev*, *Play/Pause*, *Skip*, *Stop*).
-  - **Search:** Búsqueda directa en YouTube con opción de cargar más resultados (`➕ Ver más resultados`) y **Modo Enlace Directo** para pegar URLs de videos o playlists.
-  - **Playlist:** Cola de reproducción interactiva para subir (`▲`), bajar (`▼`), eliminar (`✖`) canciones o vaciar la lista.
-  - **Settings:** Personalización de posición (`X`, `Y`), escala, opacidad, 5 temas de color (*Gold*, *Cyan*, *Purple*, *Emerald*, *Crimson*), opción para **ocultar el HUD flotante**, y avisos de actividad.
-- **Bandeja de Controles Rápidos (`,`):** Despliega los controles esenciales justo debajo del HUD sin cubrir la pantalla de juego.
+  - **Now Playing:** Barra de progreso (*Seek*), volumen, silencio, controles de reproducción, modos *Autoplay / Loop / Shuffle*, *Favorito* y botón *Reconectar*.
+  - **Search:** Búsqueda con carga de más resultados (`Ver más resultados`) e importación de **Playlists de YouTube desde el cliente** con extracción automática del título real (evita bloqueos en servidores cloud como Azure/AWS).
+  - **Queue:** Gestión interactiva de la cola de reproducción, vista previa de la siguiente pista sugerida por *Autoplay* (con opción *Cambiar*) e **Historial reciente**.
+  - **Playlists ("Mis Playlists"):** Crea, renombra y guarda colecciones locales en `config/playcraft_playlists.json`, administra **Favoritos**, visualiza miniaturas completas 16:9, duración total y banner panorámico HD al abrir cada lista, y reprodúcelas (`Play`) o mézclalas al instante.
+  - **Settings:** Personalización de posición (`X`, `Y`), escala, opacidad, 5 temas de color (*Gold*, *Cyan*, *Purple*, *Emerald*, *Crimson*), ocultar HUD flotante, silenciar la música vanilla de Minecraft automáticamente, avisos de actividad y **Buscar actualizaciones** de `yt-dlp` con comandos recomendados según Windows, Linux o macOS.
+  - **Ventana de Novedades:** Resumen automático mostrado una sola vez al abrir el mod tras actualizar de versión.
+- **Bandeja de Controles Rápidos (`,`):** Controles esenciales de reproducción y volumen justo debajo del HUD sin cubrir la pantalla de juego.
 
 ---
 
@@ -32,8 +35,8 @@ Sincronizador y reproductor de música de YouTube en tiempo real para **Minecraf
 
 1. **Minecraft:** `26.2` con **Fabric Loader** (`>= 0.16.0`) y **Fabric API**.
 2. **Java:** `25` (o `>= 21`).
-3. **Dependencias del Sistema (`yt-dlp` y `ffmpeg`):**
-   El mod utiliza `yt-dlp` y `ffmpeg` para extraer y decodificar el stream de audio de YouTube sin bloqueos. Puedes verificar si están detectados dentro del juego en la pestaña **Settings** (`Dependencias: yt-dlp: OK | ffmpeg: OK`).
+3. **Dependencias del Sistema (`yt-dlp` y `ffmpeg`) en cada Cliente:**
+   Cada jugador necesita `yt-dlp` y `ffmpeg` en su equipo para extraer y decodificar el audio de YouTube localmente. El servidor ya no depende de resolver playlists ni recomendaciones de Autoplay directamente, evitando bloqueos por IP en servidores cloud (Azure, AWS, etc.). Puedes verificar el estado y buscar actualizaciones desde el juego en la pestaña **Settings** (`Dependencias: yt-dlp: OK | ffmpeg: OK`).
 
 ### Instalación rápida de `yt-dlp` y `ffmpeg`:
 
@@ -59,7 +62,7 @@ Sincronizador y reproductor de música de YouTube en tiempo real para **Minecraf
 ```
 
 El archivo `.jar` compilado se generará en:
-`build/libs/playcraftmusic-1.0.0.jar`
+`build/libs/playcraftmusic-1.1.0.jar`
 
 ---
 

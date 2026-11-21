@@ -6,7 +6,10 @@ import com.playcraft.music.client.audio.ClientAudioEngine;
 import com.playcraft.music.client.gui.MusicHudOverlay;
 import com.playcraft.music.client.gui.MusicQuickControlsScreen;
 import com.playcraft.music.client.gui.YouTubeSearchScreen;
+import com.playcraft.music.network.RequestAutoplayPayload;
+import com.playcraft.music.network.SubmitAutoplayPayload;
 import com.playcraft.music.network.SyncPlaybackPayload;
+import com.playcraft.music.util.YouTubeMetadataResolver;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
@@ -29,8 +32,9 @@ public class PlayCraftClient implements ClientModInitializer {
     public void onInitializeClient() {
         LOGGER.info("[PlayCraftMusic] Inicializando cliente...");
 
-        // Cargar configuración guardada del jugador (posición, escala, tema, volumen y avisos)
+        // Cargar configuración guardada del jugador y playlists locales
         PlayCraftConfig.load();
+        SavedPlaylistsManager.load();
 
         KeyMapping.Category category = KeyMapping.Category.register(
                 Identifier.fromNamespaceAndPath(PlayCraftMod.MOD_ID, "music")
@@ -57,6 +61,13 @@ public class PlayCraftClient implements ClientModInitializer {
             if (client.level == null && client.player == null) {
                 if (ClientAudioEngine.getInstance().isPlaying()) {
                     ClientAudioEngine.getInstance().stopCurrentStream();
+                }
+            } else if (PlayCraftConfig.MUTE_MINECRAFT_MUSIC
+                    && ClientAudioEngine.getInstance().isPlaying()
+                    && ClientAudioEngine.getInstance().getCurrentTrack() != null
+                    && !ClientAudioEngine.getInstance().isMuted()) {
+                if (client.getMusicManager().getCurrentMusicTranslationKey() != null) {
+                    client.getMusicManager().stopPlaying();
                 }
             }
 
@@ -98,7 +109,11 @@ public class PlayCraftClient implements ClientModInitializer {
                         payload.track(),
                         payload.positionMs(),
                         payload.isPlaying(),
-                        payload.queue()
+                        payload.queue(),
+                        payload.autoplayEnabled(),
+                        payload.loopModeOrdinal(),
+                        payload.autoplayNext(),
+                        payload.history()
                 );
                 MusicHudOverlay.updatePlaybackState(payload.positionMs(), payload.isPlaying());
                 if (payload.notificationMessage() != null && !payload.notificationMessage().isEmpty()) {
@@ -109,6 +124,26 @@ public class PlayCraftClient implements ClientModInitializer {
                 } else if (context.client().gui.screen() instanceof MusicQuickControlsScreen screen) {
                     screen.onSyncUpdate();
                 }
+            });
+        });
+
+        // Receptor S2C: El servidor solicita al cliente resolver la sugerencia Autoplay (desde su IP)
+        ClientPlayNetworking.registerGlobalReceiver(RequestAutoplayPayload.ID, (payload, context) -> {
+            YouTubeMetadataResolver.resolveAutoplayNext(
+                    payload.videoUrl(),
+                    payload.title(),
+                    payload.author(),
+                    payload.recentVideoIds()
+            ).thenAccept(track -> {
+                context.client().execute(() -> {
+                    if (context.client().getConnection() != null) {
+                        ClientPlayNetworking.send(new SubmitAutoplayPayload(
+                                payload.forTrackId(),
+                                track != null,
+                                track
+                        ));
+                    }
+                });
             });
         });
 

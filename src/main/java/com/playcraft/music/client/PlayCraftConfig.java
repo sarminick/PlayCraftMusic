@@ -22,12 +22,18 @@ public class PlayCraftConfig {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Path CONFIG_PATH = FabricLoader.getInstance().getConfigDir().resolve("playcraftmusic.json");
 
+    public static final String CURRENT_MOD_VERSION = "1.1.0";
+    public static String LAST_SEEN_CHANGELOG_VERSION = "";
+    public static boolean MUTE_MINECRAFT_MUSIC = true;
+
     public static class Data {
         public int hudX = 12;
         public int hudY = 12;
         public float hudScale = 1.0f;
         public float hudOpacity = 0.88f;
         public boolean hudEnabled = true;
+        public boolean muteMinecraftMusic = true;
+        public String lastSeenChangelogVersion = "";
         public String colorTheme = "GOLD";
         public float volume = 0.8f;
         public boolean isMuted = false;
@@ -52,6 +58,8 @@ public class PlayCraftConfig {
                 MusicHudOverlay.HUD_SCALE = Math.max(0.70f, Math.min(1.50f, data.hudScale));
                 MusicHudOverlay.HUD_OPACITY = Math.max(0.20f, Math.min(1.00f, data.hudOpacity));
                 MusicHudOverlay.HUD_ENABLED = data.hudEnabled;
+                MUTE_MINECRAFT_MUSIC = data.muteMinecraftMusic;
+                LAST_SEEN_CHANGELOG_VERSION = data.lastSeenChangelogVersion != null ? data.lastSeenChangelogVersion : "";
                 try {
                     if (data.colorTheme != null) {
                         MusicHudOverlay.CURRENT_THEME = MusicHudOverlay.ColorTheme.valueOf(data.colorTheme);
@@ -84,6 +92,8 @@ public class PlayCraftConfig {
             data.hudScale = MusicHudOverlay.HUD_SCALE;
             data.hudOpacity = MusicHudOverlay.HUD_OPACITY;
             data.hudEnabled = MusicHudOverlay.HUD_ENABLED;
+            data.muteMinecraftMusic = MUTE_MINECRAFT_MUSIC;
+            data.lastSeenChangelogVersion = LAST_SEEN_CHANGELOG_VERSION;
             data.colorTheme = MusicHudOverlay.CURRENT_THEME.name();
             data.volume = ClientAudioEngine.getInstance().getVolume();
             data.isMuted = ClientAudioEngine.getInstance().isMuted();

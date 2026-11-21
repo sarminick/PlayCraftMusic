@@ -24,7 +24,10 @@ public record ControlTrackPayload(Action action, long seekPositionMs) implements
         REWIND,
         STOP,
         SEEK,
-        STREAM_READY
+        STREAM_READY,
+        TOGGLE_AUTOPLAY,
+        CYCLE_LOOP,
+        SHUFFLE_QUEUE
     }
 
     public static final StreamCodec<FriendlyByteBuf, ControlTrackPayload> CODEC = CustomPacketPayload.codec(

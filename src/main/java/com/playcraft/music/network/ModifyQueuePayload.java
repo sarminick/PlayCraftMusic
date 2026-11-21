@@ -15,7 +15,8 @@ public record ModifyQueuePayload(Action action, int fromIndex, int toIndex) impl
     public enum Action {
         REMOVE,
         MOVE,
-        CLEAR
+        CLEAR,
+        REROLL_AUTOPLAY
     }
 
     public static final StreamCodec<FriendlyByteBuf, ModifyQueuePayload> CODEC = CustomPacketPayload.codec(
