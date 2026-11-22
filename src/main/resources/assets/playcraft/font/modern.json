@@ -1,0 +1,16 @@
+{
+  "providers": [
+    {
+      "type": "ttf",
+      "file": "playcraft:noto_sans_medium.ttf",
+      "shift": [0.0, 0.5],
+      "size": 8.6,
+      "oversample": 6.0,
+      "skip": ""
+    },
+    {
+      "type": "reference",
+      "id": "minecraft:default"
+    }
+  ]
+}

@@ -1,6 +1,9 @@
 package com.playcraft.music.client.gui;
 
+import com.mojang.blaze3d.platform.cursor.CursorTypes;
+import com.playcraft.music.client.gui.ui.ModernUI;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractSliderButton;
 import net.minecraft.client.input.MouseButtonEvent;
@@ -8,133 +11,120 @@ import net.minecraft.network.chat.Component;
 
 import java.util.function.Consumer;
 
-/**
- * Control deslizante moderno, plano y minimalista con estética Spotify/Apple Music:
- * - Pista fina y oscura de fondo con bordes redondeados.
- * - Pista activa rellena con acento brillante (naranja/dorado o cian/blanco).
- * - Indicador circular / píldora moderno (Thumb) que resalta al pasar el ratón.
- * - Texto y grosor de barra escalados proporcionalmente según uiScale.
- */
 public class ModernMediaSlider extends AbstractSliderButton {
 
     public enum Theme {
-        ACCENT_ORANGE(0xFFFFAA00, 0xFFFFCC33, 0xFF353542),
-        ACCENT_CYAN(0xFF00E5FF, 0xFF80F8FF, 0xFF253238),
-        ACCENT_PURPLE(0xFFD500F9, 0xFFEA80FC, 0xFF2A2535),
-        ACCENT_EMERALD(0xFF00E676, 0xFFB9F6CA, 0xFF223025),
-        ACCENT_RED(0xFFFF1744, 0xFFFF8A80, 0xFF332020),
-        ACCENT_PINK(0xFFFF4081, 0xFFFF80AB, 0xFF33222A);
+        GOLD(false),
+        CYAN(false),
+        PURPLE(false),
+        EMERALD(false),
+        RED(false),
+        VOLUME(true);
 
-        final int activeColor;
-        final int thumbColor;
-        final int trackBgColor;
+        public final boolean isVolume;
 
-        Theme(int activeColor, int thumbColor, int trackBgColor) {
-            this.activeColor = activeColor;
-            this.thumbColor = thumbColor;
-            this.trackBgColor = trackBgColor;
+        Theme(boolean isVolume) {
+            this.isVolume = isVolume;
         }
 
-        /**
-         * Tema principal para la barra de progreso de la canción (coincide con el tema del HUD).
-         */
+        public int resolveFillColor() {
+            return isVolume ? MusicHudOverlay.getActiveVolumeColor() : MusicHudOverlay.getActiveAccentColor();
+        }
+
         public static Theme fromHudTheme(MusicHudOverlay.ColorTheme hudTheme) {
+            if (hudTheme == null) return GOLD;
             return switch (hudTheme) {
-                case CYAN -> ACCENT_CYAN;
-                case PURPLE -> ACCENT_PURPLE;
-                case EMERALD -> ACCENT_EMERALD;
-                case RED -> ACCENT_RED;
-                default -> ACCENT_ORANGE;
+                case CYAN -> CYAN;
+                case PURPLE -> PURPLE;
+                case EMERALD -> EMERALD;
+                case RED -> RED;
+                default -> GOLD;
             };
         }
 
-        /**
-         * Tema secundario de alto contraste para la barra de volumen,
-         * garantizando que siempre se distinga visualmente de la barra de la canción.
-         */
         public static Theme volumeFromHudTheme(MusicHudOverlay.ColorTheme hudTheme) {
-            return switch (hudTheme) {
-                case GOLD -> ACCENT_CYAN;       // Canción Dorada -> Volumen Cian Neón
-                case CYAN -> ACCENT_ORANGE;     // Canción Cian -> Volumen Dorado/Naranja
-                case PURPLE -> ACCENT_CYAN;     // Canción Púrpura -> Volumen Cian Neón
-                case EMERALD -> ACCENT_ORANGE;  // Canción Esmeralda -> Volumen Dorado/Naranja
-                case RED -> ACCENT_CYAN;        // Canción Roja -> Volumen Cian Neón
-            };
+            return VOLUME;
         }
     }
-
-    private final Theme theme;
-    private final Consumer<Double> onValueApplied;
-    private final ValueMessageProvider messageProvider;
-    private final boolean applyOnRelease;
-    private float uiScale = 1.0f;
 
     @FunctionalInterface
     public interface ValueMessageProvider {
-        Component getMessage(double value);
+        Component getMessage(double progress);
+    }
+
+    private Theme theme;
+    private final ValueMessageProvider messageProvider;
+    private final Consumer<Double> onChangeCallback;
+    private final boolean fireOnReleaseOnly;
+    private boolean isDragging = false;
+    private float uiScale = 1.0f;
+
+    public ModernMediaSlider(int x, int y, int width, int height, double initialValue, Theme theme,
+                             ValueMessageProvider messageProvider, Consumer<Double> onChangeCallback) {
+        this(x, y, width, height, initialValue, theme, messageProvider, onChangeCallback, false);
     }
 
     public ModernMediaSlider(int x, int y, int width, int height, double initialValue, Theme theme,
-                             ValueMessageProvider messageProvider, Consumer<Double> onValueApplied) {
-        this(x, y, width, height, initialValue, theme, messageProvider, onValueApplied, false, 1.0f);
-    }
-
-    public ModernMediaSlider(int x, int y, int width, int height, double initialValue, Theme theme,
-                             ValueMessageProvider messageProvider, Consumer<Double> onValueApplied, boolean applyOnRelease) {
-        this(x, y, width, height, initialValue, theme, messageProvider, onValueApplied, applyOnRelease, 1.0f);
-    }
-
-    public ModernMediaSlider(int x, int y, int width, int height, double initialValue, Theme theme,
-                             ValueMessageProvider messageProvider, Consumer<Double> onValueApplied, boolean applyOnRelease, float uiScale) {
-        super(x, y, width, height, messageProvider.getMessage(initialValue), initialValue);
-        this.theme = theme;
+                             ValueMessageProvider messageProvider, Consumer<Double> onChangeCallback, boolean fireOnReleaseOnly) {
+        super(x, y, width, height, Component.empty(), Math.max(0.0, Math.min(1.0, initialValue)));
+        this.theme = theme != null ? theme : Theme.GOLD;
         this.messageProvider = messageProvider;
-        this.onValueApplied = onValueApplied;
-        this.applyOnRelease = applyOnRelease;
-        this.uiScale = uiScale;
+        this.onChangeCallback = onChangeCallback;
+        this.fireOnReleaseOnly = fireOnReleaseOnly;
+        updateMessage();
+    }
+
+    public ModernMediaSlider(int x, int y, int width, int height, double initialValue,
+                             ValueMessageProvider messageProvider, Consumer<Double> onChangeCallback) {
+        this(x, y, width, height, initialValue, Theme.fromHudTheme(MusicHudOverlay.CURRENT_THEME),
+                messageProvider, onChangeCallback, false);
+    }
+
+    public void setTheme(Theme theme) {
+        this.theme = theme != null ? theme : Theme.GOLD;
+    }
+
+    public void setUiScale(float uiScale) {
+        this.uiScale = Math.max(0.5f, Math.min(2.0f, uiScale));
+    }
+
+    public boolean isDragging() {
+        return isDragging;
     }
 
     @Override
     protected void updateMessage() {
-        if (messageProvider != null) {
-            this.setMessage(messageProvider.getMessage(this.value));
+        if (this.messageProvider != null) {
+            this.setMessage(this.messageProvider.getMessage(this.value));
         }
     }
 
     @Override
     protected void applyValue() {
-        if (!applyOnRelease && onValueApplied != null) {
-            onValueApplied.accept(this.value);
+        if (!fireOnReleaseOnly && this.onChangeCallback != null) {
+            this.onChangeCallback.accept(this.value);
         }
     }
 
-    private boolean isUserDragging = false;
-
     @Override
     public void onClick(MouseButtonEvent event, boolean doubleClick) {
-        isUserDragging = true;
+        this.isDragging = true;
         super.onClick(event, doubleClick);
     }
 
     @Override
-    protected void onDrag(MouseButtonEvent event, double deltaX, double deltaY) {
-        isUserDragging = true;
-        super.onDrag(event, deltaX, deltaY);
-    }
-
-    @Override
     public void onRelease(MouseButtonEvent event) {
-        boolean wasDragging = isUserDragging;
-        isUserDragging = false;
         super.onRelease(event);
-        if (applyOnRelease && wasDragging && onValueApplied != null) {
-            updateMessage();
-            onValueApplied.accept(this.value);
+        if (this.isDragging) {
+            this.isDragging = false;
+            if (fireOnReleaseOnly && this.onChangeCallback != null) {
+                this.onChangeCallback.accept(this.value);
+            }
         }
     }
 
     public void setProgressDirect(double progress) {
-        if (!isUserDragging) {
+        if (!this.isDragging) {
             this.value = Math.max(0.0, Math.min(1.0, progress));
             updateMessage();
         }
@@ -142,47 +132,62 @@ public class ModernMediaSlider extends AbstractSliderButton {
 
     @Override
     public void extractWidgetRenderState(GuiGraphicsExtractor context, int mouseX, int mouseY, float delta) {
+        if (!this.visible) return;
+
         int x = this.getX();
         int y = this.getY();
         int w = this.getWidth();
         int h = this.getHeight();
+        boolean hovered = this.active && (this.isDragging || (mouseX >= x && mouseX < x + w && mouseY >= y && mouseY < y + h));
 
-        boolean hovered = this.isHovered();
+        int accent = this.theme.resolveFillColor();
+        int bgColor = hovered ? 0xFF1B202C : ModernUI.BG_INPUT;
+        int borderColor = hovered ? ModernUI.withAlpha(accent, 210) : ModernUI.BORDER_SUBTLE;
+        ModernUI.drawRoundedCard(context, x, y, w, h, 4, bgColor, borderColor);
 
-        // 1. Texto informativo encima de la barra, escalado proporcionalmente según uiScale
-        Minecraft mc = Minecraft.getInstance();
-        Component msg = this.getMessage();
-        int textW = mc.font.width(msg);
-        float textScale = Math.max(0.65f, Math.min(1.35f, uiScale));
-        float centerX = x + (w / 2.0f);
-        float textY = y + Math.max(1.0f, 1.5f * uiScale);
+        int padX = Math.max(4, Math.round(8 * uiScale));
+        int trackW = Math.max(10, w - padX * 2);
+        int trackX = x + padX;
+        int trackH = Math.max(2, Math.round(3 * uiScale));
+        int bottomMargin = Math.max(4, Math.round(7 * uiScale));
+        int trackY = y + h - bottomMargin;
+        int knobS = Math.max(3, Math.round(5 * uiScale));
 
-        context.pose().pushMatrix();
-        context.pose().translate(centerX, textY);
-        context.pose().scale(textScale, textScale);
-        context.text(mc.font, msg, (int) (-textW / 2.0f), 0, hovered ? 0xFFFFFFFF : 0xFFCCCCCC);
-        context.pose().popMatrix();
-
-        // 2. Pista de fondo moderna con grosor proporcional a la escala
-        int trackHeight = Math.max(2, Math.round(4 * uiScale));
-        int bottomOffset = Math.max(3, Math.round(5 * uiScale));
-        int trackY = y + h - bottomOffset;
-        context.fill(x, trackY, x + w, trackY + trackHeight, theme.trackBgColor);
-
-        // 3. Pista de progreso activa rellena
-        int filledWidth = (int) (this.value * w);
-        if (filledWidth > 0) {
-            context.fill(x, trackY, x + filledWidth, trackY + trackHeight, theme.activeColor);
+        int trackEmptyColor = hovered ? 0xFF3E475C : 0xFF2B3142;
+        ModernUI.fillRoundedRect(context, trackX, trackY, trackW, trackH, 1, trackEmptyColor);
+        int fillW = (int) Math.round(trackW * Math.max(0.0, Math.min(1.0, this.value)));
+        if (fillW > 0) {
+            ModernUI.fillRoundedRect(context, trackX, trackY, fillW, trackH, 1, accent);
         }
 
-        // 4. Indicador de arrastre (Thumb) con tamaño proporcional a la escala
-        int baseRadius = Math.max(2, Math.round(3.8f * uiScale));
-        int thumbRadius = hovered ? baseRadius + 1 : baseRadius;
-        int thumbX = x + filledWidth;
-        int thumbY = trackY + (trackHeight / 2);
+        if (hovered) {
+            int knobX = Math.max(trackX, Math.min(trackX + trackW - knobS, trackX + fillW - (knobS / 2)));
+            int knobY = trackY + (trackH - knobS) / 2;
+            ModernUI.fillRoundedRect(context, knobX, knobY, knobS, knobS, 1, 0xFFFFFFFF);
+            context.requestCursor(this.isDragging ? CursorTypes.RESIZE_EW : CursorTypes.POINTING_HAND);
+        }
 
-        int thumbColor = hovered ? 0xFFFFFFFF : theme.thumbColor;
-        context.fill(thumbX - thumbRadius, thumbY - thumbRadius, thumbX + thumbRadius, thumbY + thumbRadius, thumbColor);
-        context.outline(thumbX - thumbRadius, thumbY - thumbRadius, thumbRadius * 2, thumbRadius * 2, 0x99000000);
+        String msgText = this.getMessage().getString();
+        if (msgText != null && !msgText.isEmpty()) {
+            msgText = msgText.replaceAll("§.", "");
+            Font font = Minecraft.getInstance().font;
+            int maxUnscaledW = Math.max(10, Math.round((w - padX * 2) / uiScale));
+            String trimmed = ModernUI.truncate(font, msgText, maxUnscaledW);
+            int availTopH = Math.max(8, trackY - y - 1);
+            int scaledTextH = Math.round(9 * uiScale);
+            float centerX = x + (w / 2.0f);
+            float drawTopY = y + Math.max(1.0f, (availTopH - scaledTextH) / 2.0f);
+            int textColor = hovered ? ModernUI.TEXT_PRIMARY : ModernUI.TEXT_SECONDARY;
+
+            if (Math.abs(uiScale - 1.0f) < 0.01f) {
+                ModernUI.drawCentered(context, font, trimmed, x + w / 2, Math.round(drawTopY), textColor);
+            } else {
+                context.pose().pushMatrix();
+                context.pose().translate(centerX, drawTopY);
+                context.pose().scale(uiScale, uiScale);
+                ModernUI.drawCentered(context, font, trimmed, 0, 0, textColor);
+                context.pose().popMatrix();
+            }
+        }
     }
 }

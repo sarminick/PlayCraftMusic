@@ -46,12 +46,25 @@ public class ServerMusicManager {
     private LoopMode loopMode = LoopMode.OFF;
     private TrackInfo autoplayNextTrack = null;
     private String autoplayRequestedForTrackId = "";
+    private String autoplayRequestedForStreamUrl = "";
     private long autoplayRequestSentAtMs = 0L;
     private int autoplayRetryIndex = 0;
     private final Set<String> dismissedAutoplayIds = new LinkedHashSet<>();
     private UUID lastRequesterUuid = null;
 
+    // Estado de espera cuando la pista termina antes de que llegue la sugerencia de Autoplay
+    private boolean waitingForAutoplayNext = false;
+    private TrackInfo autoplaySeedTrack = null;
+    private long waitingForAutoplaySinceMs = 0L;
+    private static final long AUTOPLAY_WAIT_TIMEOUT_MS = 28000L;
+
     private ServerMusicManager() {}
+
+    private void clearAutoplayWaitState() {
+        this.waitingForAutoplayNext = false;
+        this.autoplaySeedTrack = null;
+        this.waitingForAutoplaySinceMs = 0L;
+    }
 
     public static ServerMusicManager getInstance() {
         return INSTANCE;
@@ -190,6 +203,7 @@ public class ServerMusicManager {
     }
 
     private void playTrack(TrackInfo track) {
+        clearAutoplayWaitState();
         // Generamos un ID único de sesión para esta reproducción para que el cliente detecte cambios o reinicios de pista
         this.currentTrack = new TrackInfo(
                 UUID.randomUUID().toString(),
@@ -206,6 +220,7 @@ public class ServerMusicManager {
         this.waitingStartTimestampMs = System.currentTimeMillis();
         this.autoplayNextTrack = null;
         this.autoplayRequestedForTrackId = "";
+        this.autoplayRequestedForStreamUrl = "";
         this.autoplayRequestSentAtMs = 0L;
         maybeRequestAutoplaySuggestion();
     }
@@ -215,7 +230,8 @@ public class ServerMusicManager {
         boolean trackOptionalAction = action == ControlTrackPayload.Action.TOGGLE_AUTOPLAY
                 || action == ControlTrackPayload.Action.CYCLE_LOOP
                 || action == ControlTrackPayload.Action.SHUFFLE_QUEUE
-                || (action == ControlTrackPayload.Action.REWIND && !history.isEmpty());
+                || (action == ControlTrackPayload.Action.REWIND && !history.isEmpty())
+                || (action == ControlTrackPayload.Action.STOP && waitingForAutoplayNext);
         if (currentTrack == null && !trackOptionalAction) return;
 
         String notif = "";
@@ -256,8 +272,10 @@ public class ServerMusicManager {
             case TOGGLE_AUTOPLAY -> {
                 autoplayEnabled = !autoplayEnabled;
                 if (!autoplayEnabled) {
+                    clearAutoplayWaitState();
                     autoplayNextTrack = null;
                     autoplayRequestedForTrackId = "";
+                    autoplayRequestedForStreamUrl = "";
                     notif = "§6[PlayCraftMusic] §e" + player.getName().getString() + " §7desactivó la §dreproducción automática§7.";
                 } else {
                     maybeRequestAutoplaySuggestion();
@@ -331,6 +349,7 @@ public class ServerMusicManager {
                     }
                     return;
                 }
+                clearAutoplayWaitState();
                 currentTrack = null;
                 isPlaying = false;
                 waitingForFirstAudio = false;
@@ -339,6 +358,7 @@ public class ServerMusicManager {
                 history.clear();
                 autoplayNextTrack = null;
                 autoplayRequestedForTrackId = "";
+                autoplayRequestedForStreamUrl = "";
                 autoplayRequestSentAtMs = 0L;
                 dismissedAutoplayIds.clear();
                 notif = "§6[PlayCraftMusic] §e" + player.getName().getString() + " §7detuvo la reproducción.";
@@ -376,6 +396,25 @@ public class ServerMusicManager {
             if (tickCounter % 20 == 0) {
                 broadcastSync("");
             }
+        } else if (waitingForAutoplayNext) {
+            tickCounter = 0;
+            if (!autoplayEnabled || autoplaySeedTrack == null) {
+                clearAutoplayWaitState();
+            } else if (!queue.isEmpty()) {
+                clearAutoplayWaitState();
+                playTrack(queue.pollFirst());
+                broadcastSync("§6[PlayCraftMusic] §7Siguiente pista: §b" + currentTrack.title());
+            } else if (autoplayNextTrack != null) {
+                TrackInfo next = autoplayNextTrack;
+                clearAutoplayWaitState();
+                playTrack(next);
+                broadcastSync("§6[PlayCraftMusic] §dAutoplay: §b" + currentTrack.title());
+            } else if (System.currentTimeMillis() - waitingForAutoplaySinceMs >= AUTOPLAY_WAIT_TIMEOUT_MS) {
+                clearAutoplayWaitState();
+                broadcastSync("§6[PlayCraftMusic] §7Autoplay no encontró una pista siguiente.");
+            } else {
+                maybeRequestAutoplaySuggestion();
+            }
         } else {
             tickCounter = 0;
         }
@@ -386,6 +425,7 @@ public class ServerMusicManager {
             playTrack(currentTrack);
             return "§6[PlayCraftMusic] §7Repitiendo: §b" + currentTrack.title();
         }
+        TrackInfo seed = currentTrack != null ? currentTrack : autoplaySeedTrack;
         if (currentTrack != null) {
             history.push(currentTrack);
             while (history.size() > 20) {
@@ -396,34 +436,53 @@ public class ServerMusicManager {
             }
         }
         if (!queue.isEmpty()) {
+            clearAutoplayWaitState();
             playTrack(queue.pollFirst());
             return "§6[PlayCraftMusic] §7Siguiente pista: §b" + currentTrack.title();
         } else if (autoplayEnabled && autoplayNextTrack != null) {
             TrackInfo next = autoplayNextTrack;
+            clearAutoplayWaitState();
             playTrack(next);
             return "§6[PlayCraftMusic] §d∞ Autoplay: §b" + currentTrack.title();
+        } else if (autoplayEnabled && seed != null && server != null && !server.getPlayerList().getPlayers().isEmpty()) {
+            waitingForAutoplayNext = true;
+            autoplaySeedTrack = seed;
+            waitingForAutoplaySinceMs = System.currentTimeMillis();
+            currentTrack = null;
+            isPlaying = false;
+            waitingForFirstAudio = false;
+            pausedPositionMs = 0;
+            // Mantener autoplayRequestedForTrackId / autoplayRequestedForStreamUrl para aprovechar la petición ya en vuelo
+            maybeRequestAutoplaySuggestion();
+            return "§6[PlayCraftMusic] §dAutoplay: §7Buscando siguiente canción...";
         } else {
+            clearAutoplayWaitState();
             currentTrack = null;
             isPlaying = false;
             waitingForFirstAudio = false;
             pausedPositionMs = 0;
             autoplayNextTrack = null;
             autoplayRequestedForTrackId = "";
+            autoplayRequestedForStreamUrl = "";
             return "";
         }
     }
 
     private void maybeRequestAutoplaySuggestion() {
-        if (server == null || !autoplayEnabled || currentTrack == null
-                || !queue.isEmpty() || autoplayNextTrack != null || loopMode == LoopMode.TRACK) {
+        TrackInfo seed = currentTrack != null ? currentTrack : (waitingForAutoplayNext ? autoplaySeedTrack : null);
+        if (server == null || !autoplayEnabled || seed == null
+                || !queue.isEmpty() || autoplayNextTrack != null || (currentTrack != null && loopMode == LoopMode.TRACK)) {
             return;
         }
         List<ServerPlayer> players = server.getPlayerList().getPlayers();
         if (players.isEmpty()) return;
 
         long now = System.currentTimeMillis();
-        boolean isFirstAttemptForTrack = !currentTrack.id().equals(autoplayRequestedForTrackId);
-        if (!isFirstAttemptForTrack && (now - autoplayRequestSentAtMs < 12000L)) {
+        boolean sameStream = seed.streamUrl() != null && !seed.streamUrl().isEmpty()
+                && seed.streamUrl().equals(autoplayRequestedForStreamUrl);
+        boolean isFirstAttemptForTrack = !seed.id().equals(autoplayRequestedForTrackId) && !sameStream;
+        long retryCooldownMs = waitingForAutoplayNext ? 7000L : 12000L;
+        if (!isFirstAttemptForTrack && (now - autoplayRequestSentAtMs < retryCooldownMs)) {
             return;
         }
 
@@ -441,7 +500,7 @@ public class ServerMusicManager {
         }
 
         Set<String> recentIds = new LinkedHashSet<>();
-        String curId = YouTubeMetadataResolver.extractVideoId(currentTrack.streamUrl());
+        String curId = YouTubeMetadataResolver.extractVideoId(seed.streamUrl());
         if (curId != null && !curId.isEmpty()) {
             recentIds.add(curId);
         }
@@ -457,29 +516,37 @@ public class ServerMusicManager {
             recentIds.add(dismissed);
         }
 
-        autoplayRequestedForTrackId = currentTrack.id();
+        autoplayRequestedForTrackId = seed.id();
+        autoplayRequestedForStreamUrl = seed.streamUrl() != null ? seed.streamUrl() : "";
         autoplayRequestSentAtMs = now;
         ServerPlayNetworking.send(chosen, new RequestAutoplayPayload(
-                currentTrack.id(),
-                currentTrack.streamUrl(),
-                currentTrack.title(),
-                currentTrack.author(),
+                seed.id(),
+                seed.streamUrl(),
+                seed.title(),
+                seed.author(),
                 new ArrayList<>(recentIds)
         ));
     }
 
     public synchronized void handleAutoplaySuggestion(String forTrackId, boolean found, TrackInfo suggested) {
+        TrackInfo activeSeed = currentTrack != null ? currentTrack : (waitingForAutoplayNext ? autoplaySeedTrack : null);
+        boolean matchesSeed = activeSeed != null && forTrackId != null
+                && (activeSeed.id().equals(forTrackId) || forTrackId.equals(autoplayRequestedForTrackId));
         if (!found || suggested == null) {
-            if (currentTrack != null && currentTrack.id().equals(forTrackId)) {
-                // Reducir espera a ~3s para intentar con otro jugador
-                autoplayRequestSentAtMs = System.currentTimeMillis() - 9000L;
+            if (matchesSeed) {
+                autoplayRequestSentAtMs = System.currentTimeMillis() - (waitingForAutoplayNext ? 5000L : 9000L);
             }
             return;
         }
-        if (autoplayEnabled && currentTrack != null && currentTrack.id().equals(forTrackId)
-                && queue.isEmpty() && autoplayNextTrack == null) {
-            this.autoplayNextTrack = suggested;
-            broadcastSync("");
+        if (autoplayEnabled && matchesSeed && queue.isEmpty()) {
+            if (waitingForAutoplayNext && currentTrack == null) {
+                clearAutoplayWaitState();
+                playTrack(suggested);
+                broadcastSync("§6[PlayCraftMusic] §dAutoplay: §b" + currentTrack.title());
+            } else if (currentTrack != null && autoplayNextTrack == null) {
+                this.autoplayNextTrack = suggested;
+                broadcastSync("");
+            }
         }
     }
 

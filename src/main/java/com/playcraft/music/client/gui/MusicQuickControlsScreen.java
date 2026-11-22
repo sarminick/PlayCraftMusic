@@ -1,72 +1,75 @@
 package com.playcraft.music.client.gui;
 
+import com.playcraft.music.client.PlayCraftClient;
 import com.playcraft.music.client.audio.ClientAudioEngine;
+import com.playcraft.music.client.gui.ui.ModernUI;
+import com.playcraft.music.client.gui.ui.PlayCraftIcons;
 import com.playcraft.music.model.TrackInfo;
 import com.playcraft.music.network.ControlTrackPayload;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
-import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.network.chat.Component;
+import org.lwjgl.glfw.GLFW;
 
-/**
- * Submenú/Bandeja rápida de reproducción:
- * Aparece integrada directamente debajo del contenedor flotante como una sola tarjeta unificada (sin borde divisor):
- * - [⏮ Prev] [⏯ Play/Pause] [⏭ Next] con botones modernos planos que escalan su tamaño y texto proporcionalmente
- * - [⏱ Seek Bar] con el color principal del tema
- * - [🔊 Volume Slider] con un color secundario de alto contraste
- */
 public class MusicQuickControlsScreen extends Screen {
 
+    private ScaledIconButton playPauseBtn;
+    private ScaledIconButton muteBtn;
+    private ModernMediaSlider posSlider;
+    private ModernMediaSlider volSlider;
+
     public MusicQuickControlsScreen() {
-        super(Component.literal("PlayCraft - Bandeja de Controles"));
+        super(Component.literal("Controles Rápidos"));
     }
 
-    /**
-     * Botón plano y moderno que escala su altura, borde y texto de forma 100% proporcional a HUD_SCALE,
-     * evitando que el texto "Play/Pause" se recorte en escalas pequeñas (0.7x).
-     */
-    private static class ScaledModernButton extends Button {
+    private static class ScaledIconButton extends Button {
+        private PlayCraftIcons.Icon icon;
+        private final boolean isPrimary;
         private final float uiScale;
 
-        public ScaledModernButton(int x, int y, int width, int height, Component message, float uiScale, OnPress onPress) {
-            super(x, y, width, height, message, onPress, DEFAULT_NARRATION);
+        public ScaledIconButton(int x, int y, int width, int height,
+                                PlayCraftIcons.Icon icon, boolean isPrimary, float uiScale, OnPress onPress) {
+            super(x, y, width, height, Component.empty(), onPress, DEFAULT_NARRATION);
+            this.icon = icon;
+            this.isPrimary = isPrimary;
             this.uiScale = uiScale;
+        }
+
+        public void setIcon(PlayCraftIcons.Icon icon) {
+            this.icon = icon;
         }
 
         @Override
         protected void extractContents(GuiGraphicsExtractor context, int mouseX, int mouseY, float delta) {
+            if (!this.visible) return;
             int x = this.getX();
             int y = this.getY();
             int w = this.getWidth();
             int h = this.getHeight();
-            boolean hovered = this.isHovered() && this.active;
+            boolean hovered = this.active && this.isHoveredOrFocused();
+            int accent = MusicHudOverlay.getActiveAccentColor();
 
-            int bgColor = !this.active ? 0x8816161E : (hovered ? 0xEE2C2C3A : 0xCC1E1E28);
-            int borderColor = !this.active ? 0x662A2A35 : (hovered ? MusicHudOverlay.CURRENT_THEME.borderColor : 0xFF38384A);
-            int textColor = !this.active ? 0xFF666677 : (hovered ? 0xFFFFFFFF : 0xFFEEEEEE);
+            int bg;
+            int border;
+            int iconColor;
+            if (isPrimary && this.active) {
+                bg = hovered ? ModernUI.brighten(accent, 0.16f) : accent;
+                border = ModernUI.brighten(accent, 0.25f);
+                iconColor = ModernUI.isBrightColor(accent) ? ModernUI.TEXT_DARK : ModernUI.TEXT_PRIMARY;
+            } else {
+                bg = hovered ? ModernUI.BG_HOVER : ModernUI.BG_ELEVATED;
+                border = hovered ? ModernUI.BORDER_HOVER : ModernUI.BORDER_SUBTLE;
+                iconColor = hovered ? ModernUI.TEXT_PRIMARY : ModernUI.TEXT_SECONDARY;
+            }
 
-            context.fill(x, y, x + w, y + h, bgColor);
-            context.outline(x, y, w, h, borderColor);
-
-            Minecraft mc = Minecraft.getInstance();
-            Component msg = this.getMessage();
-            int textW = mc.font.width(msg);
-
-            // Calculamos la escala del texto según uiScale y también garantizamos que siempre quepa dentro del ancho del botón
-            float maxFitScale = (w - 4.0f) / Math.max(1.0f, (float) textW);
-            float finalScale = Math.min(uiScale * 0.92f, maxFitScale);
-
-            float centerX = x + (w / 2.0f);
-            float centerY = y + (h / 2.0f) - (4.0f * finalScale);
-
-            context.pose().pushMatrix();
-            context.pose().translate(centerX, centerY);
-            context.pose().scale(finalScale, finalScale);
-            context.text(mc.font, msg, (int) (-textW / 2.0f), 0, textColor);
-            context.pose().popMatrix();
+            ModernUI.drawRoundedCard(context, x, y, w, h, 4, bg, border);
+            int iconSize = Math.max(8, Math.min(13, Math.round(10 * uiScale)));
+            int iconX = x + (w - iconSize) / 2;
+            int iconY = y + (h - iconSize) / 2;
+            PlayCraftIcons.draw(context, this.icon, iconX, iconY, iconSize, iconColor);
         }
     }
 
@@ -75,134 +78,135 @@ public class MusicQuickControlsScreen extends Screen {
         float scale = MusicHudOverlay.HUD_SCALE;
         int trayX = MusicHudOverlay.HUD_X;
         int hudH = Math.round(MusicHudOverlay.HUD_HEIGHT * scale);
-        int trayY = MusicHudOverlay.HUD_Y + hudH; // Adosado directamente sin separación
+        int trayY = MusicHudOverlay.HUD_Y + hudH;
         int trayWidth = Math.round(MusicHudOverlay.HUD_WIDTH * scale);
 
-        TrackInfo currentTrack = ClientAudioEngine.getInstance().getCurrentTrack();
-        boolean hasTrack = currentTrack != null;
+        int pad = Math.max(3, Math.round(6 * scale));
+        int btnH = Math.max(12, Math.round(18 * scale));
+        int sliderH = Math.max(14, Math.round(22 * scale));
+        int rowSpacing = Math.max(3, Math.round(4 * scale));
+        int colGap = Math.max(2, Math.round(4 * scale));
 
-        int pad = Math.max(4, Math.round(8 * scale));
-        int gap = Math.max(2, Math.round(3 * scale));
-        int btnW = (trayWidth - (pad * 2) - (gap * 2)) / 3;
-        int btnH = Math.max(11, Math.round(18 * scale));
+        int availW = trayWidth - (pad * 2);
+        int currentY = trayY + rowSpacing;
 
-        int row1Y = trayY + Math.round(4 * scale);
+        // Row 1: Rewind, Play/Pause, Skip
+        int btnW = (availW - (colGap * 2)) / 3;
+        int rem = availW - (btnW * 3 + colGap * 2);
 
-        // Fila 1: Botones modernos proporcionales (nunca recortan el texto ni se desbordan)
-        ScaledModernButton prevBtn = new ScaledModernButton(
-                trayX + pad, row1Y, btnW, btnH,
-                Component.literal("⏮ Prev"), scale,
+        this.addRenderableWidget(new ScaledIconButton(
+                trayX + pad, currentY, btnW, btnH,
+                PlayCraftIcons.Icon.PREV, false, scale,
                 button -> ClientPlayNetworking.send(new ControlTrackPayload(ControlTrackPayload.Action.REWIND))
-        );
-        prevBtn.active = hasTrack;
-        this.addRenderableWidget(prevBtn);
+        ));
 
-        ScaledModernButton playBtn = new ScaledModernButton(
-                trayX + pad + btnW + gap, row1Y, btnW, btnH,
-                Component.literal("⏯ Play/Pause"), scale,
+        ClientAudioEngine engine = ClientAudioEngine.getInstance();
+        PlayCraftIcons.Icon playIcon = engine.isPlaying() ? PlayCraftIcons.Icon.PAUSE : PlayCraftIcons.Icon.PLAY;
+        playPauseBtn = new ScaledIconButton(
+                trayX + pad + btnW + colGap, currentY, btnW + rem, btnH,
+                playIcon, true, scale,
                 button -> ClientPlayNetworking.send(new ControlTrackPayload(ControlTrackPayload.Action.TOGGLE_PAUSE))
         );
-        playBtn.active = hasTrack;
-        this.addRenderableWidget(playBtn);
+        this.addRenderableWidget(playPauseBtn);
 
-        ScaledModernButton nextBtn = new ScaledModernButton(
-                trayX + pad + (btnW + gap) * 2, row1Y, btnW, btnH,
-                Component.literal("⏭ Next"), scale,
+        this.addRenderableWidget(new ScaledIconButton(
+                trayX + pad + (btnW * 2) + rem + (colGap * 2), currentY, btnW, btnH,
+                PlayCraftIcons.Icon.NEXT, false, scale,
                 button -> ClientPlayNetworking.send(new ControlTrackPayload(ControlTrackPayload.Action.SKIP))
-        );
-        nextBtn.active = hasTrack;
-        this.addRenderableWidget(nextBtn);
+        ));
 
-        // Fila 2: Barra de tiempo interactiva (Seek Bar) con el color principal del tema
-        long currentDuration = (hasTrack && currentTrack.durationMs() > 0) ? currentTrack.durationMs() : 0L;
-        long livePos = hasTrack ? MusicHudOverlay.getLivePositionMs() : 0L;
-        double initialPosRatio = (hasTrack && currentDuration > 0) ? Math.max(0.0, Math.min(1.0, (double) livePos / (double) currentDuration)) : 0.0;
-        int sliderH = Math.max(12, Math.round(20 * scale));
-        int row2Y = trayY + Math.round(27 * scale);
+        // Row 2: Seek bar
+        currentY += btnH + rowSpacing;
+        TrackInfo cur = engine.getCurrentTrack();
+        double initPos = 0.0;
+        if (cur != null && cur.durationMs() > 0) {
+            initPos = Math.min(1.0, (double) MusicHudOverlay.getLivePositionMs() / (double) cur.durationMs());
+        }
 
-        ModernMediaSlider posSlider = new ModernMediaSlider(
-                trayX + pad,
-                row2Y,
-                trayWidth - (pad * 2),
-                sliderH,
-                initialPosRatio,
+        posSlider = new ModernMediaSlider(
+                trayX + pad, currentY, availW, sliderH, initPos,
                 ModernMediaSlider.Theme.fromHudTheme(MusicHudOverlay.CURRENT_THEME),
                 val -> {
                     TrackInfo t = ClientAudioEngine.getInstance().getCurrentTrack();
-                    if (t == null) {
-                        return Component.literal("⏱ 00:00 / 00:00");
+                    if (t == null || t.durationMs() <= 0) {
+                        return ModernUI.text("--:-- / --:--");
                     }
-                    long d = t.durationMs() > 0 ? t.durationMs() : 0L;
-                    return Component.literal("⏱ " + formatDuration((long) (val * d)) + " / " + formatDuration(d));
+                    long curMs = (long) (val * t.durationMs());
+                    return ModernUI.text(formatDuration(curMs) + " / " + formatDuration(t.durationMs()));
                 },
                 val -> {
                     TrackInfo t = ClientAudioEngine.getInstance().getCurrentTrack();
                     if (t != null && t.durationMs() > 0) {
                         long targetMs = (long) (val * t.durationMs());
-                        MusicHudOverlay.updatePlaybackState(targetMs, ClientAudioEngine.getInstance().isPlaying());
                         ClientPlayNetworking.send(new ControlTrackPayload(ControlTrackPayload.Action.SEEK, targetMs));
                     }
                 },
-                true,
-                scale
-        ) {
-            @Override
-            public void extractWidgetRenderState(GuiGraphicsExtractor context, int mouseX, int mouseY, float delta) {
-                TrackInfo t = ClientAudioEngine.getInstance().getCurrentTrack();
-                if (t != null && t.durationMs() > 0) {
-                    long currentLive = MusicHudOverlay.getLivePositionMs();
-                    this.setProgressDirect((double) currentLive / (double) t.durationMs());
-                }
-                super.extractWidgetRenderState(context, mouseX, mouseY, delta);
-            }
-        };
-        posSlider.active = hasTrack;
+                true
+        );
+        posSlider.setUiScale(scale);
         this.addRenderableWidget(posSlider);
 
-        // Fila 3: Slider de Volumen con color contrastante y botón de silenciar proporcional
-        float currentVol = ClientAudioEngine.getInstance().getVolume();
-        boolean isMuted = ClientAudioEngine.getInstance().isMuted();
-        int muteBtnW = Math.max(16, Math.round(24 * scale));
-        int row3Y = trayY + Math.round(52 * scale);
+        // Row 3: Volume slider + Mute button (no reconnect button in quick HUD tray)
+        currentY += sliderH + rowSpacing;
+        int muteW = Math.max(20, Math.round(28 * scale));
+        int volW = availW - muteW - colGap;
+        double initVol = engine.isMuted() ? 0.0 : engine.getVolume();
 
-        this.addRenderableWidget(new ModernMediaSlider(
-                trayX + pad,
-                row3Y,
-                trayWidth - (pad * 2) - muteBtnW - gap,
-                sliderH,
-                currentVol,
-                ModernMediaSlider.Theme.volumeFromHudTheme(MusicHudOverlay.CURRENT_THEME),
-                val -> Component.literal("🔊 " + (int) (val * 100) + "%"),
+        volSlider = new ModernMediaSlider(
+                trayX + pad, currentY, volW, sliderH, initVol,
+                ModernMediaSlider.Theme.VOLUME,
                 val -> {
-                    ClientAudioEngine.getInstance().setVolume(val.floatValue());
-                    com.playcraft.music.client.PlayCraftConfig.save();
+                    int pct = (int) Math.round(val * 100);
+                    return ModernUI.text(pct == 0 ? "Silenciado" : "Volumen: " + pct + "%");
                 },
-                false,
-                scale
-        ));
-
-        this.addRenderableWidget(new ScaledModernButton(
-                trayX + trayWidth - pad - muteBtnW, row3Y, muteBtnW, sliderH,
-                Component.literal(isMuted ? "🔇" : "🔊"), scale,
-                b -> {
-                    ClientAudioEngine.getInstance().toggleMute();
-                    com.playcraft.music.client.PlayCraftConfig.save();
-                    this.rebuildWidgets();
+                val -> {
+                    ClientAudioEngine eng = ClientAudioEngine.getInstance();
+                    eng.setVolume(val.floatValue());
+                    if (muteBtn != null) {
+                        muteBtn.setIcon(eng.isMuted() ? PlayCraftIcons.Icon.MUTE : PlayCraftIcons.Icon.VOLUME);
+                    }
                 }
-        ));
+        );
+        volSlider.setUiScale(scale);
+        this.addRenderableWidget(volSlider);
+
+        muteBtn = new ScaledIconButton(
+                trayX + pad + volW + colGap, currentY, muteW, sliderH,
+                engine.isMuted() ? PlayCraftIcons.Icon.MUTE : PlayCraftIcons.Icon.VOLUME,
+                false, scale,
+                button -> {
+                    ClientAudioEngine eng = ClientAudioEngine.getInstance();
+                    eng.toggleMute();
+                    button.setFocused(false);
+                    updateMuteVisuals();
+                }
+        );
+        this.addRenderableWidget(muteBtn);
+    }
+
+    private void updateMuteVisuals() {
+        ClientAudioEngine eng = ClientAudioEngine.getInstance();
+        if (muteBtn != null) {
+            muteBtn.setIcon(eng.isMuted() ? PlayCraftIcons.Icon.MUTE : PlayCraftIcons.Icon.VOLUME);
+        }
+        if (volSlider != null && !volSlider.isDragging()) {
+            volSlider.setProgressDirect(eng.isMuted() ? 0.0 : eng.getVolume());
+        }
     }
 
     private static String formatDuration(long ms) {
-        long sec = Math.max(0, ms / 1000);
+        if (ms <= 0) return "00:00";
+        long sec = ms / 1000;
         return String.format("%02d:%02d", sec / 60, sec % 60);
     }
 
     @Override
     public boolean keyPressed(KeyEvent event) {
-        // Cerrar también al pulsar la tecla Coma (',') o la tecla asignada en controles (además de Escape)
-        if (event.key() == org.lwjgl.glfw.GLFW.GLFW_KEY_COMMA
-                || (com.playcraft.music.client.PlayCraftClient.openQuickControlsKey != null
-                && com.playcraft.music.client.PlayCraftClient.openQuickControlsKey.matches(event))) {
+        if (PlayCraftClient.openQuickControlsKey != null && PlayCraftClient.openQuickControlsKey.matches(event)) {
+            this.onClose();
+            return true;
+        }
+        if (event.key() == GLFW.GLFW_KEY_ESCAPE) {
             this.onClose();
             return true;
         }
@@ -211,36 +215,27 @@ public class MusicQuickControlsScreen extends Screen {
 
     @Override
     public void extractBackground(GuiGraphicsExtractor context, int mouseX, int mouseY, float delta) {
-        // Sin desenfoque gaussiano (blur) para mantener el juego y el HUD nítidos.
+        // Sin difuminado para mantener el entorno de juego visible bajo el widget
     }
 
     public void onSyncUpdate() {
-        TrackInfo currentTrack = ClientAudioEngine.getInstance().getCurrentTrack();
-        boolean hasTrack = currentTrack != null;
-        String trackUrl = hasTrack ? currentTrack.streamUrl() : "";
-        if (lastTrackUrl == null || !lastTrackUrl.equals(trackUrl) || lastHasTrack == null || lastHasTrack != hasTrack) {
-            lastTrackUrl = trackUrl;
-            lastHasTrack = hasTrack;
-            this.rebuildWidgets();
+        ClientAudioEngine engine = ClientAudioEngine.getInstance();
+        if (playPauseBtn != null) {
+            playPauseBtn.setIcon(engine.isPlaying() ? PlayCraftIcons.Icon.PAUSE : PlayCraftIcons.Icon.PLAY);
         }
+        updateMuteVisuals();
     }
-
-    private String lastTrackUrl = null;
-    private Boolean lastHasTrack = null;
 
     @Override
     public void extractRenderState(GuiGraphicsExtractor context, int mouseX, int mouseY, float delta) {
-        TrackInfo currentTrack = ClientAudioEngine.getInstance().getCurrentTrack();
-        boolean hasTrack = currentTrack != null;
-        String trackUrl = hasTrack ? currentTrack.streamUrl() : "";
-        if (lastTrackUrl == null || lastHasTrack == null) {
-            lastTrackUrl = trackUrl;
-            lastHasTrack = hasTrack;
-        } else if (!lastTrackUrl.equals(trackUrl) || lastHasTrack != hasTrack) {
-            lastTrackUrl = trackUrl;
-            lastHasTrack = hasTrack;
-            this.rebuildWidgets();
-            return;
+        ClientAudioEngine engine = ClientAudioEngine.getInstance();
+        TrackInfo cur = engine.getCurrentTrack();
+
+        if (playPauseBtn != null) {
+            playPauseBtn.setIcon(engine.isPlaying() ? PlayCraftIcons.Icon.PAUSE : PlayCraftIcons.Icon.PLAY);
+        }
+        if (posSlider != null && !posSlider.isDragging() && cur != null && cur.durationMs() > 0) {
+            posSlider.setProgressDirect((double) MusicHudOverlay.getLivePositionMs() / (double) cur.durationMs());
         }
 
         float scale = MusicHudOverlay.HUD_SCALE;
@@ -248,36 +243,27 @@ public class MusicQuickControlsScreen extends Screen {
         int trayY = MusicHudOverlay.HUD_Y;
         int trayWidth = Math.round(MusicHudOverlay.HUD_WIDTH * scale);
         int hudH = Math.round(MusicHudOverlay.HUD_HEIGHT * scale);
-        int totalHeight = hudH + Math.round(80 * scale);
 
-        int themedBg = MusicHudOverlay.CURRENT_THEME.getThemedBgColor(MusicHudOverlay.HUD_OPACITY);
+        int bg = MusicHudOverlay.getActiveBgColor(MusicHudOverlay.HUD_OPACITY);
+        int border = ModernUI.withAlpha(MusicHudOverlay.getActiveBorderColor(), 200);
 
-        // Dibujamos un único fondo continuo para todo el contenedor (HUD + bandeja rápida) evitando cualquier
-        // costura de sub-píxeles entre ambos bloques, y luego renderizamos la miniatura y texto ENCIMA para que no se opaquen.
-        context.fill(trayX, trayY, trayX + trayWidth, trayY + totalHeight, themedBg);
-        if (currentTrack != null) {
-            MusicHudOverlay.renderHudCardContent(context, Minecraft.getInstance(), currentTrack, false);
+        int btnH = Math.max(12, Math.round(18 * scale));
+        int sliderH = Math.max(14, Math.round(22 * scale));
+        int rowSpacing = Math.max(3, Math.round(4 * scale));
+        int trayOnlyHeight = btnH + (sliderH * 2) + (rowSpacing * 4);
+        int unifiedHeight = hudH + trayOnlyHeight;
+
+        ModernUI.drawRoundedCard(context, trayX, trayY, trayWidth, unifiedHeight, 6, bg, border);
+        context.fill(trayX + 8, trayY + hudH, trayX + trayWidth - 8, trayY + hudH + 1,
+                ModernUI.withAlpha(MusicHudOverlay.getActiveBorderColor(), 80));
+
+        if (cur != null) {
+            MusicHudOverlay.renderHudCardContent(context, this.minecraft, cur, false);
         } else {
-            int discSize = Math.round(40 * scale);
-            int discX = trayX + Math.round(10 * scale);
-            int discY = trayY + Math.round(8 * scale);
-            context.fill(discX, discY, discX + discSize, discY + discSize, 0xFF181822);
-            context.outline(discX, discY, discSize, discSize, 0xFF353545);
-            int textX = discX + discSize + Math.round(10 * scale);
-
-            String line1 = "No music playing";
-            String line2 = "Press '.' to search";
-
-            context.pose().pushMatrix();
-            context.pose().translate(textX, trayY + Math.round(13 * scale));
-            context.pose().scale(scale, scale);
-            context.text(this.font, "§7" + line1, 0, 0, 0xFFAAAAAA);
-            context.text(this.font, "§8" + line2, 0, 14, 0xFF777777);
-            context.pose().popMatrix();
+            int centerX = trayX + trayWidth / 2;
+            int centerY = trayY + (hudH / 2) - 4;
+            ModernUI.drawCentered(context, this.font, "No hay canción reproduciéndose", centerX, centerY, ModernUI.TEXT_SECONDARY);
         }
-
-        // Único borde exterior continuo que rodea tanto el HUD como la bandeja de controles sin línea divisoria intermedia
-        context.outline(trayX, trayY, trayWidth, totalHeight, MusicHudOverlay.CURRENT_THEME.borderColor);
 
         super.extractRenderState(context, mouseX, mouseY, delta);
     }

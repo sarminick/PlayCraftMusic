@@ -1,6 +1,8 @@
 package com.playcraft.music.client.gui;
 
 import com.mojang.blaze3d.platform.NativeImage;
+import com.playcraft.music.client.audio.ClientAudioEngine;
+import com.playcraft.music.model.TrackInfo;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.resources.Identifier;
@@ -8,6 +10,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.imageio.ImageIO;
+import java.awt.Color;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -33,6 +36,70 @@ public class ThumbnailTextureManager {
     private static final Set<String> PENDING_BANNERS = ConcurrentHashMap.newKeySet();
     private static final Map<String, Identifier> FULL_THUMB_CACHE = new ConcurrentHashMap<>();
     private static final Set<String> PENDING_FULL_THUMBS = ConcurrentHashMap.newKeySet();
+    private static final Map<String, Integer> DOMINANT_COLOR_CACHE = new ConcurrentHashMap<>();
+
+    public static Integer getCachedDominantRgb(String url) {
+        if (url == null || url.isEmpty()) return null;
+        return DOMINANT_COLOR_CACHE.get(url);
+    }
+
+    private static int extractVibrantAccentRgb(BufferedImage img) {
+        if (img == null || img.getWidth() <= 0 || img.getHeight() <= 0) {
+            return 0xFFAA00;
+        }
+        int w = img.getWidth();
+        int h = img.getHeight();
+        int stepX = Math.max(1, w / 28);
+        int stepY = Math.max(1, h / 28);
+
+        final int buckets = 24;
+        double[] weights = new double[buckets];
+        double[] sumR = new double[buckets];
+        double[] sumG = new double[buckets];
+        double[] sumB = new double[buckets];
+        float[] hsb = new float[3];
+
+        for (int y = 0; y < h; y += stepY) {
+            for (int x = 0; x < w; x += stepX) {
+                int argb = img.getRGB(x, y);
+                int alpha = (argb >>> 24) & 0xFF;
+                if (alpha < 128) continue;
+
+                int r = (argb >>> 16) & 0xFF;
+                int g = (argb >>> 8) & 0xFF;
+                int b = argb & 0xFF;
+                Color.RGBtoHSB(r, g, b, hsb);
+                float sat = hsb[1];
+                float bri = hsb[2];
+                if (sat < 0.24f || bri < 0.16f || bri > 0.98f) continue;
+
+                int bucket = Math.min(buckets - 1, Math.max(0, (int) (hsb[0] * buckets)));
+                double weight = (sat * 1.6) + (bri * 0.6);
+                weights[bucket] += weight;
+                sumR[bucket] += r * weight;
+                sumG[bucket] += g * weight;
+                sumB[bucket] += b * weight;
+            }
+        }
+
+        int bestBucket = -1;
+        double bestWeight = 0.0;
+        for (int i = 0; i < buckets; i++) {
+            if (weights[i] > bestWeight) {
+                bestWeight = weights[i];
+                bestBucket = i;
+            }
+        }
+
+        if (bestBucket < 0 || bestWeight <= 0.0) {
+            return 0xFFAA00;
+        }
+
+        int r = Math.min(255, Math.max(0, (int) Math.round(sumR[bestBucket] / bestWeight)));
+        int g = Math.min(255, Math.max(0, (int) Math.round(sumG[bestBucket] / bestWeight)));
+        int b = Math.min(255, Math.max(0, (int) Math.round(sumB[bestBucket] / bestWeight)));
+        return (r << 16) | (g << 8) | b;
+    }
 
     private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(5))
@@ -171,6 +238,13 @@ public class ThumbnailTextureManager {
 
             if (bImg != null && bImg.getWidth() > 0 && bImg.getHeight() > 0) {
                 try {
+                    int dominantRgb = extractVibrantAccentRgb(bImg);
+                    DOMINANT_COLOR_CACHE.put(url, dominantRgb);
+                    TrackInfo curTrack = ClientAudioEngine.getInstance().getCurrentTrack();
+                    if (curTrack != null && url.equals(curTrack.thumbnailUrl())) {
+                        MusicHudOverlay.updateDynamicColorFromRgb(dominantRgb);
+                    }
+
                     int discDiameter = 256;
                     BufferedImage vinylImg = new BufferedImage(discDiameter, discDiameter, BufferedImage.TYPE_INT_ARGB);
                     java.awt.Graphics2D g2 = vinylImg.createGraphics();
@@ -199,8 +273,10 @@ public class ThumbnailTextureManager {
                     g2.drawImage(cropped, labelOffset, labelOffset, labelDiameter, labelDiameter, null);
                     g2.setClip(oldClip);
 
-                    // 3. Fino anillo decorativo delimitando la carátula según el tema de color seleccionado
-                    int themeBorder = MusicHudOverlay.CURRENT_THEME.borderColor;
+                    // 3. Fino anillo decorativo delimitando la carátula según el tema activo o color dominante
+                    int themeBorder = MusicHudOverlay.CURRENT_THEME == MusicHudOverlay.ColorTheme.DYNAMIC
+                            ? dominantRgb
+                            : MusicHudOverlay.getActiveBorderColor();
                     g2.setColor(new java.awt.Color((themeBorder >> 16) & 0xFF, (themeBorder >> 8) & 0xFF, themeBorder & 0xFF, 0xEE));
                     g2.setStroke(new java.awt.BasicStroke(2.0f));
                     g2.drawOval(labelOffset, labelOffset, labelDiameter, labelDiameter);
@@ -406,6 +482,7 @@ public class ThumbnailTextureManager {
         TEXTURE_CACHE.clear();
         BANNER_CACHE.clear();
         FULL_THUMB_CACHE.clear();
+        DOMINANT_COLOR_CACHE.clear();
         DEFAULT_VINYL_ID = null;
     }
 }

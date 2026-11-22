@@ -22,9 +22,10 @@ public class PlayCraftConfig {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Path CONFIG_PATH = FabricLoader.getInstance().getConfigDir().resolve("playcraftmusic.json");
 
-    public static final String CURRENT_MOD_VERSION = "1.1.0";
+    public static final String CURRENT_MOD_VERSION = "2.0.0";
     public static String LAST_SEEN_CHANGELOG_VERSION = "";
     public static boolean MUTE_MINECRAFT_MUSIC = true;
+    public static boolean USE_MODERN_FONT = true;
 
     public static class Data {
         public int hudX = 12;
@@ -33,8 +34,9 @@ public class PlayCraftConfig {
         public float hudOpacity = 0.88f;
         public boolean hudEnabled = true;
         public boolean muteMinecraftMusic = true;
+        public boolean useModernFont = true;
         public String lastSeenChangelogVersion = "";
-        public String colorTheme = "GOLD";
+        public String colorTheme = "DYNAMIC";
         public float volume = 0.8f;
         public boolean isMuted = false;
 
@@ -59,13 +61,14 @@ public class PlayCraftConfig {
                 MusicHudOverlay.HUD_OPACITY = Math.max(0.20f, Math.min(1.00f, data.hudOpacity));
                 MusicHudOverlay.HUD_ENABLED = data.hudEnabled;
                 MUTE_MINECRAFT_MUSIC = data.muteMinecraftMusic;
+                USE_MODERN_FONT = data.useModernFont;
                 LAST_SEEN_CHANGELOG_VERSION = data.lastSeenChangelogVersion != null ? data.lastSeenChangelogVersion : "";
                 try {
                     if (data.colorTheme != null) {
                         MusicHudOverlay.CURRENT_THEME = MusicHudOverlay.ColorTheme.valueOf(data.colorTheme);
                     }
                 } catch (IllegalArgumentException ignored) {
-                    MusicHudOverlay.CURRENT_THEME = MusicHudOverlay.ColorTheme.GOLD;
+                    MusicHudOverlay.CURRENT_THEME = MusicHudOverlay.ColorTheme.DYNAMIC;
                 }
 
                 MusicHudOverlay.NOTIFICATIONS_ENABLED = data.notificationsEnabled;
@@ -93,6 +96,7 @@ public class PlayCraftConfig {
             data.hudOpacity = MusicHudOverlay.HUD_OPACITY;
             data.hudEnabled = MusicHudOverlay.HUD_ENABLED;
             data.muteMinecraftMusic = MUTE_MINECRAFT_MUSIC;
+            data.useModernFont = USE_MODERN_FONT;
             data.lastSeenChangelogVersion = LAST_SEEN_CHANGELOG_VERSION;
             data.colorTheme = MusicHudOverlay.CURRENT_THEME.name();
             data.volume = ClientAudioEngine.getInstance().getVolume();

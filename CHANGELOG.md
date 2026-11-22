@@ -2,6 +2,27 @@
 
 Todos los cambios relevantes de este proyecto se documentan en este archivo siguiendo el estándar de **Versionado Semántico (SemVer)**.
 
+## [2.0.0] - 2026-11-21
+
+### Rediseño Visual Moderno
+- Nueva arquitectura del Centro Musical 100% adaptable a cualquier escala GUI y resolución de Minecraft, con barra lateral izquierda fija, tarjetas elevadas oscuras, bordes redondeados limpios y mini-reproductor interactivo inferior siempre accesible.
+- Eliminados los botones y campos de texto grises estándar de Minecraft mediante componentes propios (`ModernButton`, `ModernEditBox`, `ModernSettingSlider`, `ModernMediaSlider`).
+- Incorporado un set de 28 iconos vectoriales HD (`64x64` PNG) en navegación, controles de reproducción, playlists, HUD flotante y bandeja de controles rápidos (`,`).
+- Carrusel suave (marquee) para títulos largos en HUD flotante, tarjeta hero de *Reproducción*, mini-reproductor lateral, banner de detalle de playlist y al pasar el cursor sobre cada fila en *Buscar*, *Cola*, *Historial* y *Playlists*.
+- Cursor nativo de mano (`POINTING_HAND`), arrastre (`RESIZE_EW`) y edición de texto (`IBEAM`) en botones, barras deslizables, filas interactivas, mini-reproductor y modales.
+
+### Tema Dinámico y Tipografía
+- Añadido tema **Dinámico (Carátula)** por defecto: analiza la paleta HSB de cada carátula descargada para adaptar el color de acento, bordes, progreso y volumen a la canción activa.
+- Integrada tipografía moderna **Noto Sans Medium** mediante proveedor TTF aislado (`playcraft:modern`), con selector en vivo desde *Ajustes* para alternar entre fuente *Moderna* y *Minecraft Clásica*.
+
+### Experiencia, Playlists y Autoplay
+- Tarjeta Hero en *Reproducción* con banner atmosférico sutil, estado de transmisión en tiempo real, toggle de *Favorito* y selector rápido emergente `+ Playlist`.
+- Adición individual de cualquier pista desde una playlist a la cola sin necesidad de cargar toda la lista, tooltips flotantes informativos y botón `Volver` integrado en la cabecera superior fuera del banner.
+- Bandeja de controles rápidos (`,`) rediseñada con contenedor unificado al HUD, contraste mejorado en hover y escala proporcional completa en textos, barras e iconos.
+- Ocultado automático del HUD pasivo al abrir el Centro Musical (`.`), conservando la vista previa en vivo dentro de *Ajustes*.
+- Corrección en **Autoplay** (`ServerMusicManager`): estado de espera cuando la canción actual termina o se salta antes de recibir la recomendación siguiente (y preservación tras usar *Seek*), arrancando la siguiente pista automáticamente sin detener la sesión.
+- Actualizada la ventana de novedades al iniciar la versión `2.0.0` por primera vez.
+
 ## [1.1.0] - 2026-11-21
 
 ### Motor de Audio v2

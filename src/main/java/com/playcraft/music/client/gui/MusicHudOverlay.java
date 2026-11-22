@@ -1,6 +1,7 @@
 package com.playcraft.music.client.gui;
 
 import com.playcraft.music.client.audio.ClientAudioEngine;
+import com.playcraft.music.client.gui.ui.ModernUI;
 import com.playcraft.music.model.TrackInfo;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElement;
 import net.minecraft.client.DeltaTracker;
@@ -8,6 +9,8 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.resources.Identifier;
+
+import java.awt.Color;
 
 /**
  * Overlay flotante limpio, estético y minimalista:
@@ -49,11 +52,12 @@ public class MusicHudOverlay implements HudElement {
     }
 
     public enum ColorTheme {
-        GOLD("§6Gold / Orange", 0xFFFFAA00, 0xFFFFCC33, 0x111116, 0xFFFFB300),
-        CYAN("§bNeon Cyan", 0xFF00E5FF, 0xFF69F0AE, 0x10161A, 0xFF00E5FF),
-        PURPLE("§dPurple / Neon", 0xFFD500F9, 0xFFEA80FC, 0x16101A, 0xFFE040FB),
-        EMERALD("§aEmerald Green", 0xFF00E676, 0xFFB9F6CA, 0x101A12, 0xFF00E676),
-        RED("§cCrimson Red", 0xFFFF1744, 0xFFFF8A80, 0x1A1010, 0xFFFF5252);
+        DYNAMIC("Dinámico (Carátula)", 0xFFFFCC33, 0xFFFFAA00, 0x0E1016, 0xFFFFAA00),
+        GOLD("Gold / Orange", 0xFFFFCC33, 0xFFFFAA00, 0x111116, 0xFFFFB300),
+        CYAN("Neon Cyan", 0xFF00E5FF, 0xFF00E5FF, 0x10161A, 0xFF00E5FF),
+        PURPLE("Purple / Neon", 0xFFEA80FC, 0xFFD500F9, 0x16101A, 0xFFE040FB),
+        EMERALD("Emerald Green", 0xFF00E676, 0xFF00E676, 0x101A12, 0xFF00E676),
+        RED("Crimson Red", 0xFFFF5252, 0xFFFF1744, 0x1A1010, 0xFFFF5252);
 
         public final String displayName;
         public final int borderColor;
@@ -75,7 +79,57 @@ public class MusicHudOverlay implements HudElement {
         }
     }
 
-    public static ColorTheme CURRENT_THEME = ColorTheme.GOLD;
+    public static ColorTheme CURRENT_THEME = ColorTheme.DYNAMIC;
+
+    private static volatile int dynamicAccentArgb = 0xFFFFAA00;
+    private static volatile int dynamicBorderArgb = 0xFFFFCC33;
+    private static volatile int dynamicBgRgb = 0x0E1016;
+    private static volatile int dynamicVolumeArgb = 0xFF38BDF8;
+    private static String lastDynamicTrackId = "";
+
+    public static void updateDynamicColorFromRgb(int vibrantRgb) {
+        int r = (vibrantRgb >>> 16) & 0xFF;
+        int g = (vibrantRgb >>> 8) & 0xFF;
+        int b = vibrantRgb & 0xFF;
+        float[] hsb = Color.RGBtoHSB(r, g, b, null);
+        float hue = hsb[0];
+        float sat = Math.max(0.55f, Math.min(0.95f, hsb[1]));
+        float bri = Math.max(0.76f, Math.min(0.96f, hsb[2]));
+
+        int accentRgb = Color.HSBtoRGB(hue, sat, bri) & 0x00FFFFFF;
+        int borderRgb = Color.HSBtoRGB(hue, Math.max(0.45f, sat * 0.85f), Math.min(1.0f, bri + 0.06f)) & 0x00FFFFFF;
+        int bgRgb = Color.HSBtoRGB(hue, Math.min(0.40f, sat * 0.45f), 0.08f) & 0x00FFFFFF;
+        int volRgb = Color.HSBtoRGB((hue + 0.08f) % 1.0f, Math.max(0.50f, sat * 0.85f), 0.94f) & 0x00FFFFFF;
+
+        dynamicAccentArgb = 0xFF000000 | accentRgb;
+        dynamicBorderArgb = 0xFF000000 | borderRgb;
+        dynamicBgRgb = bgRgb;
+        dynamicVolumeArgb = 0xFF000000 | volRgb;
+    }
+
+    public static int getActiveAccentColor() {
+        return CURRENT_THEME == ColorTheme.DYNAMIC ? dynamicAccentArgb : CURRENT_THEME.accentColor;
+    }
+
+    public static int getActiveBorderColor() {
+        return CURRENT_THEME == ColorTheme.DYNAMIC ? dynamicBorderArgb : CURRENT_THEME.borderColor;
+    }
+
+    public static int getActiveProgressColor() {
+        return CURRENT_THEME == ColorTheme.DYNAMIC ? dynamicAccentArgb : CURRENT_THEME.progressColor;
+    }
+
+    public static int getActiveBgColor(float opacity) {
+        if (CURRENT_THEME == ColorTheme.DYNAMIC) {
+            int alpha = Math.max(25, Math.min(255, (int) (opacity * 255.0f)));
+            return (alpha << 24) | (dynamicBgRgb & 0x00FFFFFF);
+        }
+        return CURRENT_THEME.getThemedBgColor(opacity);
+    }
+
+    public static int getActiveVolumeColor() {
+        return CURRENT_THEME == ColorTheme.DYNAMIC ? dynamicVolumeArgb : 0xFF38BDF8;
+    }
 
     private static float currentAngle = 0.0f;
     private static long lastAngleUpdateTime = System.currentTimeMillis();
@@ -86,11 +140,24 @@ public class MusicHudOverlay implements HudElement {
         if (!curId.equals(lastTrackId)) {
             lastTrackId = curId;
             currentPositionMs = positionMs;
+            syncDynamicThemeForTrack(track);
         } else {
             currentPositionMs = positionMs;
         }
         lastUpdateTime = System.currentTimeMillis();
         isPlaying = playing;
+    }
+
+    private static void syncDynamicThemeForTrack(TrackInfo track) {
+        if (track == null) return;
+        String trackKey = track.id() != null ? track.id() : "";
+        if (!trackKey.equals(lastDynamicTrackId)) {
+            lastDynamicTrackId = trackKey;
+            Integer cachedRgb = ThumbnailTextureManager.getCachedDominantRgb(track.thumbnailUrl());
+            if (cachedRgb != null) {
+                updateDynamicColorFromRgb(cachedRgb);
+            }
+        }
     }
 
     public static void onLocalStreamStarted() {
@@ -125,8 +192,9 @@ public class MusicHudOverlay implements HudElement {
         // Renderizar aviso de actividad flotante si el jugador los activó en Settings
         renderNotificationToast(drawContext, client);
 
-        boolean quickControlsOpen = client.gui.screen() instanceof MusicQuickControlsScreen;
-        if (!HUD_ENABLED || quickControlsOpen) return;
+        boolean hideForScreen = client.gui.screen() instanceof MusicQuickControlsScreen
+                || (client.gui.screen() instanceof YouTubeSearchScreen screen && !screen.isSettingsTabActive());
+        if (!HUD_ENABLED || hideForScreen) return;
 
         TrackInfo track = ClientAudioEngine.getInstance().getCurrentTrack();
         if (track == null) return;
@@ -135,6 +203,7 @@ public class MusicHudOverlay implements HudElement {
     }
 
     public static void renderHudCardContent(GuiGraphicsExtractor drawContext, Minecraft client, TrackInfo track, boolean drawBackgroundAndBorder) {
+        syncDynamicThemeForTrack(track);
         long livePos = getLivePositionMs();
 
         long duration = track.durationMs() > 0 ? track.durationMs() : 180000L;
@@ -148,10 +217,13 @@ public class MusicHudOverlay implements HudElement {
             drawContext.pose().translate(-HUD_X, -HUD_Y);
         }
 
-        // 1. Contenedor: Cuando el menú rápido está cerrado dibujamos el fondo y borde propios del HUD.
+        // 1. Contenedor: Cuando el menú rápido está cerrado dibujamos el fondo y borde modernos del HUD.
+        int activeAccent = getActiveAccentColor();
+        int activeBorder = getActiveBorderColor();
+        int activeProgress = getActiveProgressColor();
         if (drawBackgroundAndBorder) {
-            drawContext.fill(HUD_X, HUD_Y, HUD_X + HUD_WIDTH, HUD_Y + HUD_HEIGHT, CURRENT_THEME.getThemedBgColor(HUD_OPACITY));
-            drawContext.outline(HUD_X, HUD_Y, HUD_WIDTH, HUD_HEIGHT, CURRENT_THEME.borderColor);
+            ModernUI.drawRoundedCard(drawContext, HUD_X, HUD_Y, HUD_WIDTH, HUD_HEIGHT, 6,
+                    getActiveBgColor(HUD_OPACITY), ModernUI.withAlpha(activeBorder, 190));
         }
 
         // 2. Miniatura como Disco de Vinilo girando en vivo
@@ -170,48 +242,51 @@ public class MusicHudOverlay implements HudElement {
         drawContext.pose().rotate((float) Math.toRadians(angle));
 
         if (thumbId != null) {
-            // Se dibuja directamente el disco de vinilo circular transparente generado
             drawContext.blit(RenderPipelines.GUI_TEXTURED, thumbId, -r, -r, 0.0f, 0.0f, discSize, discSize, discSize, discSize);
         }
 
         drawContext.pose().popMatrix();
 
-        // 3. Título del video de YouTube
-        int textX = HUD_X + 64;
-        String rawTitle = track.title();
-        String title = rawTitle.length() > 25 ? rawTitle.substring(0, 23) + "..." : rawTitle;
-        drawContext.text(client.font, "§f§l" + title, textX, HUD_Y + 7, 0xFFFFFFFF);
+        // 3. Título de la pista (con carrusel suave si excede el ancho disponible)
+        int textX = HUD_X + 62;
+        ModernUI.drawScrollingBold(drawContext, client.font, track.title(), textX, HUD_Y + 8, HUD_WIDTH - 70, ModernUI.TEXT_PRIMARY);
 
         // 4. Autor o estado en vivo del motor de audio
         ClientAudioEngine.PlaybackStatus status = ClientAudioEngine.getInstance().getPlaybackStatus();
         String subLine;
+        int subColor;
         if (status == ClientAudioEngine.PlaybackStatus.LOADING) {
-            subLine = "§eCargando audio...";
+            subLine = "Cargando audio...";
+            subColor = 0xFFFBBF24;
         } else if (status == ClientAudioEngine.PlaybackStatus.RECONNECTING) {
-            subLine = "§6Reconectando audio...";
+            subLine = "Reconectando audio...";
+            subColor = 0xFFFB923C;
         } else if (status == ClientAudioEngine.PlaybackStatus.ERROR) {
-            subLine = "§cReintentando audio...";
+            subLine = "Reintentando audio...";
+            subColor = 0xFFF87171;
         } else {
-            String rawAuthor = track.author();
-            String author = rawAuthor.length() > 26 ? rawAuthor.substring(0, 24) + "..." : rawAuthor;
-            subLine = "§e" + author;
+            subLine = ModernUI.truncate(client.font, track.author(), HUD_WIDTH - 72);
+            subColor = ModernUI.TEXT_SECONDARY;
         }
-        drawContext.text(client.font, subLine, textX, HUD_Y + 20, 0xFFEEEEEE);
+        ModernUI.drawText(drawContext, client.font, subLine, textX, HUD_Y + 21, subColor, false);
 
-        // 5. Barra de progreso estética
+        // 5. Barra de progreso estética moderna
         int barX = textX;
-        int barY = HUD_Y + 36;
-        int barWidth = 110;
+        int barY = HUD_Y + 38;
+        int barWidth = 108;
         int barHeight = 4;
 
-        drawContext.fill(barX, barY, barX + barWidth, barY + barHeight, 0xFF33333E);
-        drawContext.fill(barX, barY, barX + (int) (barWidth * progress), barY + barHeight, CURRENT_THEME.progressColor);
+        ModernUI.fillRoundedRect(drawContext, barX, barY, barWidth, barHeight, 2, 0xFF232734);
+        int fillWidth = Math.max(0, (int) (barWidth * progress));
+        if (fillWidth > 0) {
+            ModernUI.fillRoundedRect(drawContext, barX, barY, fillWidth, barHeight, 2, activeProgress);
+        }
 
-        // 6. Tiempo numérico (ej: 01:23 / 03:45)
-        long currentSec = (livePos / 1000);
-        long totalSec = (duration / 1000);
+        // 6. Tiempo numérico (ej: 01:23/03:45)
+        long currentSec = livePos / 1000;
+        long totalSec = duration / 1000;
         String timeStr = String.format("%02d:%02d/%02d:%02d", currentSec / 60, currentSec % 60, totalSec / 60, totalSec % 60);
-        drawContext.text(client.font, "§6" + timeStr, barX + barWidth + 6, barY - 2, 0xFFFFFFDD);
+        ModernUI.drawText(drawContext, client.font, timeStr, barX + barWidth + 7, barY - 2, activeAccent, false);
 
         drawContext.pose().popMatrix();
     }
@@ -225,23 +300,24 @@ public class MusicHudOverlay implements HudElement {
 
         String msgToRender = null;
         if (!activeNotification.isEmpty() && elapsed < NOTIFICATION_DURATION_MS) {
-            msgToRender = activeNotification;
+            msgToRender = activeNotification.replaceAll("§.", "");
         } else if (settingsPreview) {
-            msgToRender = "§6[PlayCraftMusic] §eVista previa de aviso de actividad";
+            msgToRender = "[PlayCraft] Vista previa de aviso de actividad";
         }
 
         if (msgToRender == null) return;
 
-        int textW = client.font.width(msgToRender);
-        int boxW = textW + 12;
-        int boxH = 16;
+        int textW = ModernUI.width(client.font, msgToRender);
+        int boxW = textW + 16;
+        int boxH = 18;
 
         drawContext.pose().pushMatrix();
         drawContext.pose().translate(NOTIFICATION_X, NOTIFICATION_Y);
         drawContext.pose().scale(NOTIFICATION_SCALE, NOTIFICATION_SCALE);
 
-        drawContext.fill(0, 0, boxW, boxH, CURRENT_THEME.getThemedBgColor(HUD_OPACITY));
-        drawContext.text(client.font, msgToRender, 6, 4, 0xFFFFFFFF);
+        ModernUI.drawRoundedCard(drawContext, 0, 0, boxW, boxH, 4,
+                getActiveBgColor(HUD_OPACITY), ModernUI.withAlpha(getActiveBorderColor(), 190));
+        ModernUI.drawText(drawContext, client.font, msgToRender, 8, 5, ModernUI.TEXT_PRIMARY, false);
 
         drawContext.pose().popMatrix();
     }
